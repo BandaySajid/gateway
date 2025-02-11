@@ -8,7 +8,7 @@ async function req() {
     const then = Date.now();
     const r = await fetch("http://localhost:9090/api/hello", {
       headers: {
-        "x-host-id": "e5b2d3f5a5cf74f6decd6af041730804",
+        "x-host-id": "8a69eaf3c3213c5eef36a8a9bddbd1b6",
       },
     });
 
@@ -30,7 +30,7 @@ async function req() {
   }
 }
 
-for (let i = 0; i < 1000; i++) {
+for (let i = 0; i < 100; i++) {
   promises.push(req());
 }
 

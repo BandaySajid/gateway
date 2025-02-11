@@ -213,7 +213,7 @@ export class RuleValidator {
   }
 
   validateAll(): RuleValidationStatus {
-    let operations = [];
+    let operations: { passed: boolean; id: number }[] = [];
 
     for (const op of this.ruleOperations) {
       operations.push({ passed: op.process(), id: op.id });

@@ -5,7 +5,6 @@ import dotenv from "dotenv";
 import Redis from "ioredis";
 import { rateLimit } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-
 dotenv.config();
 
 const PORT = process.env.PORT || 9090;
@@ -13,17 +12,11 @@ const APP_URL = process.env.APP_URL || "";
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const ENV = process.env.ENV || "development";
 const redis = new Redis(REDIS_URL);
+const HOST_DATA_CACHE_TTL = 3600; // 1 hour
 
 const server = express();
 server.use(express.urlencoded({ extended: true }));
 server.use(express.json());
-
-type RequestData = {
-  request_count: number;
-  duration_start: number | null;
-  period_start: number | null;
-  blocked: "f" | "t";
-};
 
 type HostData = {
   host: string;
@@ -36,19 +29,31 @@ type HostData = {
   expressions: Rule[];
 };
 
-async function writeHostData(id: string, data: HostData) {
+interface RedisHostData extends Record<string, string> {
+  host: string;
+  period: string;
+  duration: string;
+  frequency: string;
+  protocol: "http" | "https";
+  port: string;
+  filter: "custom" | "all";
+  expressions: string;
+}
+
+async function writeHostData(id: string, data: RedisHostData) {
   try {
     await redis.hset(id, data);
+    await redis.expire(id, HOST_DATA_CACHE_TTL);
   } catch (error) {
     console.error("Host data write failed:", error);
     throw error;
   }
 }
 
-async function getHostData(id: string): Promise<HostData | undefined | null> {
+async function getHostData(id: string): Promise<RedisHostData | null> {
   try {
     const data = await redis.hgetall(id);
-    return Object.keys(data).length <= 0 ? null : (data as any);
+    return Object.keys(data).length <= 0 ? null : (data as RedisHostData);
   } catch (error) {
     console.error("Host data read failed:", error);
     return null;
@@ -56,8 +61,7 @@ async function getHostData(id: string): Promise<HostData | undefined | null> {
 }
 
 async function requestHostData(hostId: string) {
-  const url = `${APP_URL}/rules/${hostId}`;
-
+  const url = `${APP_URL}/gateway/rules/${hostId}`;
   try {
     const r = await fetch(url);
     const jr = await r.json();
@@ -79,7 +83,6 @@ async function proxyHandler(
   let thisUrl = req.protocol + "://" + req.get("host") + req.url;
   try {
     const data = req.hostData as HostData;
-    console.log("got host data:", req.hostData);
     let u = new URL(thisUrl);
     u.hostname = data.host;
     u.port = data.port || "";
@@ -93,8 +96,6 @@ async function proxyHandler(
     } else {
       target_url = u.toString();
     }
-
-    delete req.headers["accept-encoding"]; // removing this header because serverless environments probably do not support deflate encoding.
 
     proxy(target_url, {
       proxyReqPathResolver: function (_) {
@@ -149,41 +150,50 @@ async function ratelimiterMiddleware(
         return res.status(401).send("Invalid host id");
       }
 
-      data.period = Number(data.period) * 1000;
-      data.duration = Number(data.duration) * 1000;
-
       await writeHostData(hostId, data);
     }
 
     const limiter = rateLimit({
-      windowMs: data.period,
-      limit: data.frequency,
+      windowMs: Number(data.period) * 1000,
+      limit: Number(data.frequency),
       standardHeaders: "draft-8",
       legacyHeaders: false,
       store: new RedisStore({
         // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
         sendCommand: (...args: string[]) => redis.call(...args),
       }),
+      handler: (_, response, __, ___) => {
+        response.removeHeader("Cache-Control");
+        response.setHeader(
+          "Cache-Control",
+          `public, max-age=${Number(data.duration)}, s-maxage=${Number(data.duration)}`,
+        );
+
+        return response.status(429).send("Too many requests, slow down.");
+      },
     });
 
-    req.hostData = data;
+    req.hostData = {
+      ...data,
+      duration: Number(data.duration),
+      period: Number(data.period),
+      frequency: Number(data.frequency),
+      expressions: data.expressions?.length > 0 && JSON.parse(data.expressions),
+    };
 
-    // let ip;
-    //
-    // if (ENV === "production") {
-    //   const u = new URL(thisUrl);
-    //   ip = u.pathname.split("/").pop();
-    //   const path = u.searchParams.get("path");
-    //   if (path) {
-    //     u.pathname = decodeURIComponent(path);
-    //     thisUrl = u.origin + path;
-    //   }
-    // } else {
-    //   ip =
-    //     req.headers["x-forwarded-for"] ||
-    //     req.headers["CF-Connecting-IP"] ||
-    //     "127.0.0.1";
-    // }
+    let ip: string | undefined;
+
+    if (ENV === "production") {
+      const u = new URL(thisUrl);
+      ip = u.pathname.split("/").pop();
+      const path = u.searchParams.get("path");
+      if (path) {
+        u.pathname = decodeURIComponent(path);
+        thisUrl = u.origin + path;
+      }
+    } else {
+      ip = req.ip;
+    }
 
     if (data.filter === "custom") {
       const expressions =
@@ -203,12 +213,6 @@ async function ratelimiterMiddleware(
       const rule_validation = RV.validateAll();
 
       if (rule_validation?.passed) {
-        //TODO:
-        // res.removeHeader("Cache-Control");
-        // res.setHeader(
-        //   "Cache-Control",
-        //   `public, max-age=20, s-maxage=${data.duration / 1000}`,
-        // );
         return limiter(req, res, next);
       }
       return next();
