@@ -30,7 +30,11 @@ export enum RuleOperators {
   DOES_NOT_EXIST = "DOES_NOT_EXIST",
 }
 
-type Logic = "and" | "or" | null;
+export enum Logic {
+  AND = "and",
+  OR = "or",
+  NULL = "null",
+}
 
 export interface Rule {
   id: number;
@@ -65,7 +69,7 @@ type ProcessedRule = {
 };
 
 export class RuleValidator {
-  private rules: Rule[];
+  private rules: Array<Rule>;
   // private headers: IncomingHttpHeaders;
   private url: URL;
   // private cookie: string | null;
@@ -76,7 +80,7 @@ export class RuleValidator {
   private processedRules: ProcessedRule[];
 
   constructor(
-    rules: Rule[],
+    rules: Array<Rule>,
     url: string | URL,
     method: string,
     // headers: IncomingHttpHeaders,

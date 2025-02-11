@@ -1,28 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/swcrc",
   "jsc": {
-    "experimental": {
-      "keepImportAssertions": true
-    },
     "parser": {
       "syntax": "typescript",
       "tsx": false,
       "dynamicImport": true,
-      "decorators": false,
+      "decorators": false
     },
-    "transform": null,
+    "transform": {},
     "target": "es2022",
     "loose": false,
     "externalHelpers": false,
-    "keepClassNames": false
+    "keepClassNames": false,
+    "experimental": {
+      "keepImportAssertions": true
+    }
   },
   "module": {
     "type": "es6",
     "strict": true,
     "strictMode": false,
     "noInterop": false,
-    "lazy": false,
+    "lazy": false
   },
-  "minify": true,
-  "inlineSourcesContent": true,
+  "minify": false,
+  "inlineSourcesContent": true
 }
