@@ -47,8 +47,10 @@ async function proxyHandler(
   res: express.Response,
 ): Promise<express.Response | void> {
   let thisUrl = req.protocol + "://" + req.get("host") + req.url;
+  thisUrl = 'https://gateway.amplizard.com/192.168.1.1?path=api/hello'
   try {
     const data = req.hostData as HostData;
+
     let u = new URL(thisUrl);
     u.hostname = data.host;
     u.port = data.port || "";
@@ -61,6 +63,11 @@ async function proxyHandler(
       target_url = u.origin + u.search;
     } else {
       target_url = u.toString();
+    }
+
+    if (ENV === "production") {
+      let p = parseRewrittenUrl(target_url);
+      target_url = p.url;
     }
 
     proxy(target_url, {
@@ -84,6 +91,21 @@ async function proxyHandler(
     return res
       .status(500)
       .send({ success: false, error: "Error proxying URL" });
+  }
+}
+
+function parseRewrittenUrl(url: string) {
+  const u = new URL(url);
+  const ip = u.pathname.split("/").pop();
+  const path = u.searchParams.get("path");
+
+  if (path) {
+    u.pathname = decodeURIComponent(path);
+    url = u.origin + u.pathname;
+  }
+
+  return {
+    ip, url
   }
 }
 
@@ -147,13 +169,9 @@ async function ratelimiterMiddleware(
     let ip: string | undefined;
 
     if (ENV === "production") {
-      const u = new URL(thisUrl);
-      ip = u.pathname.split("/").pop();
-      const path = u.searchParams.get("path");
-      if (path) {
-        u.pathname = decodeURIComponent(path);
-        thisUrl = u.origin + path;
-      }
+      const p = parseRewrittenUrl(thisUrl);
+      thisUrl = p.url;
+      ip = p.ip;
     } else {
       ip = req.ip;
     }
