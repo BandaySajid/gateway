@@ -67,6 +67,7 @@ async function proxyHandler(
     if (ENV === "production") {
       let p = parseRewrittenUrl(target_url);
       target_url = p.url;
+      u.href = p.url;
     }
 
     proxy(target_url, {
