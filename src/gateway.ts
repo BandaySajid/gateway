@@ -102,8 +102,11 @@ function parseRewrittenUrl(url: string) {
 
   if (path) {
     u.pathname = decodeURIComponent(path);
-    if (query) {
-      u.search = decodeURIComponent(query);
+    if (query && query.length > 0) {
+      const params = new URLSearchParams(query);
+      for (const [key, value] of params) {
+        u.searchParams.append(key, value);
+      }
     }
     url = u.origin + u.pathname + u.search;
   }
