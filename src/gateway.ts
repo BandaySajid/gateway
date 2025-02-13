@@ -98,10 +98,14 @@ function parseRewrittenUrl(url: string) {
   const u = new URL(url);
   const ip = u.pathname.split("/").pop();
   const path = u.searchParams.get("path");
+  const query = u.searchParams.get("query");
 
   if (path) {
     u.pathname = decodeURIComponent(path);
-    url = u.origin + u.pathname;
+    if (query) {
+      u.search = decodeURIComponent(query);
+    }
+    url = u.origin + u.pathname + u.search;
   }
 
   return {
