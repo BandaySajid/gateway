@@ -1,4 +1,5 @@
-import { RuleValidator, RuleTypes, RuleOperators, Logic } from "../src/rules.js";
+import { RuleValidator } from "../src/rules.js";
+import { RuleTypes, Logic, RuleOperators } from "../src/types.js";
 import * as assert from 'assert';
 import { describe, it } from "node:test";
 
