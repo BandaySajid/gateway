@@ -47,7 +47,6 @@ async function proxyHandler(
   res: express.Response,
 ): Promise<express.Response | void> {
   let thisUrl = req.protocol + "://" + req.get("host") + req.url;
-  thisUrl = 'https://gateway.amplizard.com/192.168.1.1?path=api/hello'
   try {
     const data = req.hostData as HostData;
 
