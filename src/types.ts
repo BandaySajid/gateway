@@ -20,6 +20,7 @@ export interface RedisHostData extends Record<string, string> {
   port: string;
   filter: "custom" | "all";
   expressions: string;
+  ratelimitCached: string;
 }
 
 export enum RuleTypes {

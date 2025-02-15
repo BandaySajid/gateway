@@ -40,6 +40,8 @@ async function requestHostData(hostId: string) {
 
 interface ProxyRequest extends express.Request {
   hostData: HostData;
+  ratelimitCached: string | null;
+  hostId: string | null
 }
 
 async function proxyHandler(
@@ -48,6 +50,9 @@ async function proxyHandler(
 ): Promise<express.Response | void> {
   let thisUrl = req.protocol + "://" + req.get("host") + req.url;
   try {
+    if (req.ratelimitCached === "true") {
+      await redis.del(`${req.hostId}:ratelimitCached`);
+    }
     const data = req.hostData as HostData;
 
     let u = new URL(thisUrl);
@@ -127,6 +132,8 @@ async function ratelimiterMiddleware(
     }
 
     let data = await getHostData(hostId);
+    req.ratelimitCached = await redis.get(`${hostId}:ratelimitCached`);
+    req.hostId = hostId;
 
     if (!data) {
       const result = await requestHostData(hostId);
@@ -148,13 +155,15 @@ async function ratelimiterMiddleware(
         // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
         sendCommand: (...args: string[]) => redis.call(...args),
       }),
-      handler: (_, response, __, ___) => {
-        response.removeHeader("Cache-Control");
-        response.setHeader(
-          "Cache-Control",
-          `public, max-age=${Number(data.duration)}, s-maxage=${Number(data.duration)}`,
-        );
-
+      handler: async (_, response, __, ___) => {
+        if (req.ratelimitCached !== "true") {
+          response.removeHeader("Cache-Control");
+          response.setHeader(
+            "Cache-Control",
+            `public, max-age=${Number(data.duration)}, s-maxage=${Number(data.duration)}`,
+          );
+          await redis.set(`${req.hostId}:ratelimitCached`, "true");
+        }
         return response.status(429).send("Too many requests, slow down.");
       },
     });

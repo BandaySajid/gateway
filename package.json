@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "swc src --out-dir dist -s --strip-leading-paths --copy-files",
-    "dev": "ENV=development APP_URL=http://localhost:8787 node -r source-map-support/register dist/index.js",
+    "dev": "ENV=development APP_URL=http://localhost:8787 COMMUNICATOR_SECRET=sd098fds09f8sd908fs09df809sd8f21 node -r source-map-support/register dist/index.js",
     "test": "swc src --out-dir test-build/src -s --strip-leading-paths --copy-files && swc test --out-dir test-build/test -s --strip-leading-paths --copy-files && node ./test-build/test/index.js"
   },
   "keywords": [],

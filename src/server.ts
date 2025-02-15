@@ -10,8 +10,10 @@ server.use(express.json())
 server.use(express.urlencoded({ extended: true }))
 
 server.delete('/cache/hosts/:id', async (req: express.Request, res: express.Response): Promise<void> => {
+  console.log('request to delete cache');
   const { id } = req.params;
   if (req.headers.authorization !== COMMUNICATOR_SECRET) {
+    console.log('no auth', req.headers, COMMUNICATOR_SECRET)
     res.status(401).send({ success: false, error: "Unauthorized" });
     return
   }
