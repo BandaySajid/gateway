@@ -2,7 +2,7 @@ import express from "express";
 import proxy from "express-http-proxy";
 import { RuleValidator } from "./rules.js";
 import Redis from "ioredis";
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, RateLimitInfo } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { HostData, RedisHostData } from "./types.js";
 import { writeHostData } from "./util.js";
@@ -44,6 +44,10 @@ interface ProxyRequest extends express.Request {
   hostData: HostData;
   ratelimitCached: string | null;
   hostId: string | null
+}
+
+interface RateLimitHandlerRequest extends express.Request {
+  ratelimitInfo?: RateLimitInfo
 }
 
 async function proxyHandler(
@@ -157,18 +161,21 @@ async function ratelimiterMiddleware(
     const limiter = rateLimit({
       windowMs: Number(data.period) * 1000,
       limit: Number(data.frequency),
+      requestPropertyName: 'ratelimitInfo',
       standardHeaders: "draft-8",
       legacyHeaders: false,
       store: new RedisStore({
         // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
         sendCommand: (...args: string[]) => redis.call(...args),
       }),
-      handler: async (_, response, __, ___) => {
+      handler: async (hReq: RateLimitHandlerRequest, response, __, ___) => {
         if (req.ratelimitCached !== "true") {
+          const info = hReq.ratelimitInfo;
+          const rt = Math.floor((info?.resetTime?.getTime()! - Date.now()) / 1000);
           response.removeHeader("Cache-Control");
           response.setHeader(
             "Cache-Control",
-            `public, max-age=${Number(data.duration)}, s-maxage=${Number(data.duration)}`,
+            `public, max-age=${rt}, s-maxage=${rt}`,
           );
           await redis.set(`${req.hostId}:ratelimitCached`, "true");
         }
