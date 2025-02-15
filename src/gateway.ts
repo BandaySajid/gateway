@@ -14,7 +14,7 @@ const redis = new Redis(REDIS_URL);
 const USAGE_LIMIT = 100000; //100k limit for free plan. TODO: change this.
 
 const gateway = express();
-gateway.set('trust-proxy', 1);
+gateway.set('trust proxy', 1);
 gateway.use(express.urlencoded({ extended: true }));
 gateway.use(express.json());
 gateway.use(cors());
