@@ -11,7 +11,7 @@ export type HostData = {
   expressions: Rule[];
 };
 
-export interface RedisHostData extends Record<string, string> {
+export interface RedisHostData extends Record<string, string | number> {
   host: string;
   period: string;
   duration: string;
@@ -20,7 +20,7 @@ export interface RedisHostData extends Record<string, string> {
   port: string;
   filter: "custom" | "all";
   expressions: string;
-  ratelimitCached: string;
+  usage: number;
 }
 
 export enum RuleTypes {

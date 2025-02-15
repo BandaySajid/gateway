@@ -11,6 +11,8 @@ import cors from "cors";
 
 const redis = new Redis(REDIS_URL);
 
+const USAGE_LIMIT = 100000; //100k limit for free plan. TODO: change this.
+
 const gateway = express();
 gateway.use(express.urlencoded({ extended: true }));
 gateway.use(express.json());
@@ -74,6 +76,8 @@ async function proxyHandler(
       target_url = p.url;
       u.href = p.url;
     }
+
+    await redis.hincrby(req.hostId!, 'usage', 1)
 
     proxy(target_url, {
       proxyReqPathResolver: function (_) {
@@ -144,6 +148,10 @@ async function ratelimiterMiddleware(
       }
 
       await writeHostData(redis, hostId, data);
+    }
+
+    if (Number(data.usage) > USAGE_LIMIT) {
+      return res.status(429).send("Service usage limit exceeded.");
     }
 
     const limiter = rateLimit({
