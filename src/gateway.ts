@@ -6,7 +6,7 @@ import { rateLimit, RateLimitInfo } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { HostData, RedisHostData } from "./types.js";
 import { writeHostData } from "./util.js";
-import { APP_URL, ENV, GATEWAY_PORT, REDIS_URL } from './config.js';
+import { APP_URL, COMMUNICATOR_SECRET, ENV, GATEWAY_PORT, REDIS_URL } from './config.js';
 import cors from "cors";
 
 const redis = new Redis(REDIS_URL);
@@ -32,7 +32,11 @@ async function getHostData(id: string): Promise<RedisHostData | null> {
 async function requestHostData(hostId: string) {
   const url = `${APP_URL}/gateway/rules/${hostId}`;
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, {
+      headers: {
+        "Authorization": COMMUNICATOR_SECRET
+      }
+    });
     const jr = await r.json();
     return jr;
   } catch (err) {
@@ -180,7 +184,7 @@ async function ratelimiterMiddleware(
           );
           await redis.set(`${req.hostId}:ratelimitCached`, "true");
         }
-        return response.status(429).send("Too many requests, slow down.");
+        return response.status(200).json({ status: "ratelimited", code: 429, message: "Too many requests, slow down." });
       },
     });
 
