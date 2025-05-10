@@ -156,7 +156,7 @@ async function getRatelimiter(
           //   (info?.resetTime?.getTime()! - Date.now()) / 1000,
           // );
 
-          const rt = c.msBeforeNext;
+          const rt = Math.floor(c.msBeforeNext / 1000);
           res.removeHeader("Cache-Control");
           res.setHeader(
             "Cache-Control",
