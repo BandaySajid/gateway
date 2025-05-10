@@ -1,20 +1,31 @@
-import express from "express";
+import express, { RequestHandler } from "express";
 import proxy from "express-http-proxy";
 import { RuleValidator } from "./rules.js";
 import Redis from "ioredis";
-import { rateLimit, RateLimitInfo } from "express-rate-limit";
-import { RedisStore } from "rate-limit-redis";
 import { HostData, RedisHostData } from "./types.js";
 import { writeHostData } from "./util.js";
-import { APP_URL, COMMUNICATOR_SECRET, ENV, GATEWAY_PORT, REDIS_URL } from './config.js';
+import {
+  APP_URL,
+  COMMUNICATOR_SECRET,
+  ENV,
+  GATEWAY_PORT,
+  REDIS_URL,
+} from "./config.js";
 import cors from "cors";
+import { RateLimiterRedis } from "rate-limiter-flexible";
+
+interface ProxyRequest extends express.Request {
+  hostData: HostData;
+  ratelimitCached: string | null;
+  hostId: string | null;
+}
 
 const redis = new Redis(REDIS_URL);
 
 const USAGE_LIMIT = 100000; //100k limit for free plan. TODO: change this.
 
 const gateway = express();
-gateway.set('trust proxy', 1);
+gateway.set("trust proxy", 1);
 gateway.use(express.urlencoded({ extended: true }));
 gateway.use(express.json());
 gateway.use(cors());
@@ -34,8 +45,8 @@ async function requestHostData(hostId: string) {
   try {
     const r = await fetch(url, {
       headers: {
-        "Authorization": COMMUNICATOR_SECRET
-      }
+        Authorization: COMMUNICATOR_SECRET,
+      },
     });
     const jr = await r.json();
     return jr;
@@ -43,16 +54,6 @@ async function requestHostData(hostId: string) {
     console.log("Error Requesting host data:", err);
     return null;
   }
-}
-
-interface ProxyRequest extends express.Request {
-  hostData: HostData;
-  ratelimitCached: string | null;
-  hostId: string | null
-}
-
-interface RateLimitHandlerRequest extends express.Request {
-  ratelimitInfo?: RateLimitInfo
 }
 
 async function proxyHandler(
@@ -86,7 +87,7 @@ async function proxyHandler(
       u.href = p.url;
     }
 
-    await redis.hincrby(req.hostId!, 'usage', 1)
+    await redis.hincrby(req.hostId!, "usage", 1);
 
     proxy(target_url, {
       proxyReqPathResolver: function (_) {
@@ -119,12 +120,62 @@ function parseRewrittenUrl(url: string) {
 
   if (path) {
     u.pathname = decodeURIComponent(path);
-    u.searchParams.delete('path');
+    u.searchParams.delete("path");
     url = u.origin + u.pathname + u.search;
   }
 
   return {
-    ip, url
+    ip,
+    url,
+  };
+}
+
+async function getRatelimiter(
+  req: ProxyRequest,
+  res: express.Response,
+  next: express.NextFunction,
+  data: RedisHostData,
+) {
+  try {
+    const limiter = new RateLimiterRedis({
+      storeClient: redis,
+      points: 1,
+      duration: Number(data.period),
+    });
+
+    limiter
+      .consume(req.ip as string, 1)
+      .then((c) => {
+        console.log("consumed:", c.consumedPoints, c.remainingPoints);
+        next();
+      })
+      .catch(async (c) => {
+        if (req.ratelimitCached !== "true") {
+          // const info = hReq.ratelimitInfo;
+          // const rt = Math.floor(
+          //   (info?.resetTime?.getTime()! - Date.now()) / 1000,
+          // );
+
+          const rt = c.msBeforeNext;
+          res.removeHeader("Cache-Control");
+          res.setHeader(
+            "Cache-Control",
+            `public, max-age=${rt}, s-maxage=${rt}, immutable`,
+          );
+          await redis.set(`${req.hostId}:ratelimitCached`, "true");
+        }
+
+        return res.status(200).json({
+          status: "ratelimited",
+          code: 429,
+          message: "Too many requests, slow down.",
+        });
+      });
+  } catch (err) {
+    return res.status(500).json({
+      status: "error",
+      message: "internal gateway error",
+    });
   }
 }
 
@@ -134,7 +185,7 @@ async function ratelimiterMiddleware(
   next: express.NextFunction,
 ) {
   try {
-    res.removeHeader('x-powered-by')
+    res.removeHeader("x-powered-by");
     res.setHeader("gateway", "Amplizard");
     let thisUrl = req.protocol + "://" + req.get("host") + req.url;
 
@@ -162,31 +213,6 @@ async function ratelimiterMiddleware(
     if (Number(data.usage) > USAGE_LIMIT) {
       return res.status(429).send("Service usage limit exceeded.");
     }
-
-    const limiter = rateLimit({
-      windowMs: Number(data.period) * 1000,
-      limit: Number(data.frequency),
-      requestPropertyName: 'ratelimitInfo',
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-      store: new RedisStore({
-        // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
-        sendCommand: (...args: string[]) => redis.call(...args),
-      }),
-      handler: async (hReq: RateLimitHandlerRequest, response, __, ___) => {
-        if (req.ratelimitCached !== "true") {
-          const info = hReq.ratelimitInfo;
-          const rt = Math.floor((info?.resetTime?.getTime()! - Date.now()) / 1000);
-          response.removeHeader("Cache-Control");
-          response.setHeader(
-            "Cache-Control",
-            `public, max-age=${rt}, s-maxage=${rt}`,
-          );
-          await redis.set(`${req.hostId}:ratelimitCached`, "true");
-        }
-        return response.status(200).json({ status: "ratelimited", code: 429, message: "Too many requests, slow down." });
-      },
-    });
 
     req.hostData = {
       ...data,
@@ -224,11 +250,13 @@ async function ratelimiterMiddleware(
       const rule_validation = RV.validateAll();
 
       if (rule_validation?.passed) {
-        return limiter(req, res, next);
+        return getRatelimiter(req, res, next, data).catch((er) =>
+          console.error("Error", er),
+        );
       }
       return next();
     } else if (data.filter === "all") {
-      return limiter(req, res, next);
+      return getRatelimiter(req, res, next, data);
     } else {
       return next();
     }
@@ -241,9 +269,7 @@ async function ratelimiterMiddleware(
 gateway.all("*", ratelimiterMiddleware as any, proxyHandler as any);
 
 export default function run() {
-  gateway.listen(GATEWAY_PORT, '127.0.0.1', () => {
+  gateway.listen(GATEWAY_PORT, "127.0.0.1", () => {
     console.log("Gateway listening on PORT:", GATEWAY_PORT);
   });
 }
-
-
