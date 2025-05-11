@@ -94,7 +94,10 @@ async function proxyHandler(
         return u.pathname + u.search;
       },
     })(req, res, (err: any) => {
-      console.error("Proxy error:", err);
+      if (err.code !== "ECONNREFUSED") {
+        // would not log ECONNREFUSED errors since that would be the problem with end server itself
+        console.error("Proxy error:", err);
+      }
       res.status(502).json({ success: false, error: "Bad Gateway" });
     });
   } catch (error) {
@@ -145,8 +148,7 @@ async function getRatelimiter(
 
     limiter
       .consume(req.ip as string, 1)
-      .then((c) => {
-        console.log("consumed:", c.consumedPoints, c.remainingPoints);
+      .then((_) => {
         next();
       })
       .catch(async (c) => {
